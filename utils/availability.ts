@@ -1,4 +1,12 @@
-import { parse, format, eachDayOfInterval, startOfDay, add } from "date-fns";
+import {
+  parse,
+  format,
+  eachDayOfInterval,
+  startOfDay,
+  add,
+  isWithinInterval,
+  isWeekend,
+} from "date-fns";
 
 const monthMap: Record<string, number> = {
   january: 0,
@@ -53,8 +61,14 @@ export function parseEvents(text: string): EventSlot[] {
 export function calculateAvailability(
   events: EventSlot[],
   workStart: string,
-  workEnd: string
+  workEnd: string,
+  startDate: string,
+  endDate: string,
+  excludeWeekends: boolean // New parameter
 ): DayAvailability[] {
+  const start = parse(startDate, "yyyy-MM-dd", new Date());
+  const end = parse(endDate, "yyyy-MM-dd", new Date());
+
   // Group events by date (YYYY-MM-DD)
   const grouped: Record<string, EventSlot[]> = {};
   events.forEach((e) => {
@@ -63,38 +77,42 @@ export function calculateAvailability(
     grouped[key].push(e);
   });
 
-  return Object.entries(grouped).map(([dateStr, dayEvents]) => {
-    const date = parse(dateStr, "yyyy-MM-dd", new Date());
-    const dayStart = parse(workStart, "HH:mm", date);
-    const dayEnd = parse(workEnd, "HH:mm", date);
+  // Generate availability for each day in the range
+  return eachDayOfInterval({ start, end })
+    .filter((date) => !excludeWeekends || !isWeekend(date)) // Exclude weekends if the flag is true
+    .map((date) => {
+      const dateStr = format(date, "yyyy-MM-dd");
+      const dayEvents = grouped[dateStr] || [];
+      const dayStart = parse(workStart, "HH:mm", date);
+      const dayEnd = parse(workEnd, "HH:mm", date);
 
-    // sort & merge overlaps
-    const sorted = dayEvents
-      .sort((a, b) => a.start.getTime() - b.start.getTime())
-      .reduce<EventSlot[]>((acc, cur) => {
-        if (!acc.length || cur.start > acc.at(-1)!.end) {
-          acc.push({ ...cur });
-        } else {
-          acc[acc.length - 1].end = new Date(
-            Math.max(acc.at(-1)!.end.getTime(), cur.end.getTime())
-          );
+      // Sort & merge overlaps
+      const sorted = dayEvents
+        .sort((a, b) => a.start.getTime() - b.start.getTime())
+        .reduce<EventSlot[]>((acc, cur) => {
+          if (!acc.length || cur.start > acc.at(-1)!.end) {
+            acc.push({ ...cur });
+          } else {
+            acc[acc.length - 1].end = new Date(
+              Math.max(acc.at(-1)!.end.getTime(), cur.end.getTime())
+            );
+          }
+          return acc;
+        }, []);
+
+      // Slice free slots
+      const slots: EventSlot[] = [];
+      let cursor = dayStart;
+      for (const busy of sorted) {
+        if (busy.start > cursor) {
+          slots.push({ start: cursor, end: busy.start });
         }
-        return acc;
-      }, []);
-
-    // slice free slots
-    const slots: EventSlot[] = [];
-    let cursor = dayStart;
-    for (const busy of sorted) {
-      if (busy.start > cursor) {
-        slots.push({ start: cursor, end: busy.start });
+        cursor = busy.end > cursor ? busy.end : cursor;
       }
-      cursor = busy.end > cursor ? busy.end : cursor;
-    }
-    if (cursor < dayEnd) {
-      slots.push({ start: cursor, end: dayEnd });
-    }
+      if (cursor < dayEnd) {
+        slots.push({ start: cursor, end: dayEnd });
+      }
 
-    return { date, slots };
-  });
+      return { date, slots };
+    });
 }
