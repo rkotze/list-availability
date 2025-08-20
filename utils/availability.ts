@@ -58,6 +58,19 @@ export function parseEvents(text: string): EventSlot[] {
   return events;
 }
 
+function isBankHoliday(date: Date): boolean {
+  const holidays = [
+    "2025-01-01",
+    "2025-04-10", // Easter Monday
+    "2025-05-05", // Early May Bank Holiday
+    "2025-05-26", // Spring Bank Holiday
+    "2025-08-25", // Summer Bank Holiday
+    "2025-12-25",
+    "2025-12-26",
+  ];
+  return holidays.includes(format(date, "yyyy-MM-dd"));
+}
+
 export function calculateAvailability(
   events: EventSlot[],
   workStart: string,
@@ -79,7 +92,13 @@ export function calculateAvailability(
 
   // Generate availability for each day in the range
   return eachDayOfInterval({ start, end })
-    .filter((date) => !excludeWeekends || !isWeekend(date)) // Exclude weekends if the flag is true
+    .filter((date) => {
+      // If excludeWeekends is true, also exclude weekends and UK bank holidays
+      if (excludeWeekends && (isWeekend(date) || isBankHoliday(date))) {
+        return false;
+      }
+      return true;
+    })
     .map((date) => {
       const dateStr = format(date, "yyyy-MM-dd");
       const dayEvents = grouped[dateStr] || [];
