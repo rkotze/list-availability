@@ -35,7 +35,10 @@ export function parseEvents(text: string): EventSlot[] {
   let currentDate: Date | null = null;
   const events: EventSlot[] = [];
 
-  for (const line of lines) {
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+
+    // Match date lines (e.g., "FRIDAY 22 AUGUST")
     const dateMatch = line.match(/^([A-Za-z]+)\s+(\d{1,2})\s+([A-Za-z]+)$/);
     if (dateMatch) {
       const [, , dayStr, monthStr] = dateMatch;
@@ -46,12 +49,39 @@ export function parseEvents(text: string): EventSlot[] {
       continue;
     }
 
-    const timeMatch = line.match(/(\d{1,2}:\d{2})\s*-\s*(\d{1,2}:\d{2})/);
-    if (timeMatch && currentDate) {
-      const [, startStr, endStr] = timeMatch;
+    // Match time range (e.g., "13:30 - 14:15")
+    const timeRangeMatch = line.match(/(\d{1,2}:\d{2})\s*-\s*(\d{1,2}:\d{2})/);
+    if (timeRangeMatch && currentDate) {
+      const [_, startStr, endStr] = timeRangeMatch;
       const start = parse(startStr, "HH:mm", currentDate);
       const end = parse(endStr, "HH:mm", currentDate);
       events.push({ start, end });
+      continue;
+    }
+
+    // Match time and duration (e.g., "11:00" followed by "30m" or "1h")
+    const timeMatch = line.match(/(\d{1,2}:\d{2})/);
+    if (timeMatch && currentDate) {
+      const startStr = timeMatch[1];
+      const start = parse(startStr, "HH:mm", currentDate);
+
+      // Check the next line for duration
+      const durationLine = lines[i + 1];
+      const durationMatch = durationLine?.match(/(\d+)(m|h)/);
+      if (durationMatch) {
+        const [, durationValue, unit] = durationMatch;
+        const duration = parseInt(durationValue, 10);
+        const end = add(start, {
+          minutes: unit === "m" ? duration : 0,
+          hours: unit === "h" ? duration : 0,
+        });
+        events.push({ start, end });
+        i++; // Skip the duration line
+        continue;
+      }
+
+      // If no duration is found, skip this event
+      continue;
     }
   }
 
@@ -93,7 +123,6 @@ export function calculateAvailability(
   // Generate availability for each day in the range
   return eachDayOfInterval({ start, end })
     .filter((date) => {
-      // If excludeWeekends is true, also exclude weekends and UK bank holidays
       if (excludeWeekends && (isWeekend(date) || isBankHoliday(date))) {
         return false;
       }
@@ -105,7 +134,6 @@ export function calculateAvailability(
       const dayStart = parse(workStart, "HH:mm", date);
       const dayEnd = parse(workEnd, "HH:mm", date);
 
-      // Sort & merge overlaps
       const sorted = dayEvents
         .sort((a, b) => a.start.getTime() - b.start.getTime())
         .reduce<EventSlot[]>((acc, cur) => {
@@ -119,7 +147,6 @@ export function calculateAvailability(
           return acc;
         }, []);
 
-      // Slice free slots
       const slots: EventSlot[] = [];
       let cursor = dayStart;
       for (const busy of sorted) {

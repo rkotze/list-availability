@@ -87,7 +87,9 @@ export default function Home() {
                 onChange={(e) => setExcludeWeekends(e.target.checked)}
                 className="mr-2"
               />
-              <span className="text-sm font-medium">Exclude Weekends</span>
+              <span className="text-sm font-medium">
+                Exclude Weekends and bank holidays.
+              </span>
             </label>
           </div>
         </div>
